@@ -1,0 +1,174 @@
+# config/params.yaml - Vision Arena 2025 视觉节点参数配置
+
+# 相机参数配置
+camera:
+  device_id: 0                    # 相机设备ID (0: 默认摄像头)
+  width: 640                     # 图像宽度
+  height: 480                    # 图像高度
+  fps: 30                        # 帧率
+  auto_exposure: false           # 是否自动曝光
+  exposure: 100                  # 曝光值 (0-255)
+  brightness: 50                 # 亮度 (0-100)
+  contrast: 50                   # 对比度 (0-100)
+  saturation: 64                 # 饱和度 (0-100)
+
+# 颜色阈值配置 (HSV空间)
+color_thresholds:
+  cyan:                          # 青色阈值
+    lower: [80, 100, 100]       # [H, S, V] 下限
+    upper: [100, 255, 255]      # [H, S, V] 上限
+  red1:                          # 红色阈值1 (0-10度)
+    lower: [0, 120, 60]
+    upper: [10, 255, 255]
+  red2:                          # 红色阈值2 (170-180度)
+    lower: [170, 120, 70]
+    upper: [180, 255, 255]
+  green:                         # 绿色阈值
+    lower: [40, 50, 50]
+    upper: [85, 230, 255]
+  blue:                          # 蓝色阈值
+    lower: [100, 50, 50]
+    upper: [130, 255, 255]
+
+# 图像处理参数
+image_processing:
+  # 形态学操作参数
+  morphology:
+    kernel_size: 5               # 形态学核大小
+    close_iterations: 2          # 闭运算迭代次数
+    open_iterations: 1           # 开运算迭代次数
+  
+  # 二值化参数
+  binary_threshold: 180          # 数字识别二值化阈值
+  adaptive_threshold: false      # 是否使用自适应阈值
+
+# 球体检测参数
+sphere_detection:
+  min_area: 500                  # 最小轮廓面积
+  max_area: 50000               # 最大轮廓面积
+  min_radius: 15                # 最小半径
+  max_radius: 200               # 最大半径
+  circularity_threshold: 0.7     # 圆形度阈值 (0-1)
+
+# 矩形检测参数
+rectangle_detection:
+  min_area: 100                 # 最小轮廓面积
+  epsilon_factor: 0.02          # 多边形逼近精度因子
+  min_aspect_ratio: 1.0         # 最小长宽比
+  max_aspect_ratio: 10.0        # 最大长宽比
+
+# 装甲板检测参数
+armor_detection:
+  # 灯条检测参数
+  light_bar:
+    min_area: 30                # 灯条最小面积
+    min_length: 10              # 灯条最小长度
+    max_length: 300             # 灯条最大长度
+    search_range: 5             # 端点精炼搜索范围
+  
+  # 灯条配对参数
+  pairing:
+    min_length_ratio: 2.5       # 最小长度比例
+    max_length_ratio: 5.0       # 最大长度比例
+    max_angle_diff: 45.0        # 最大角度差异(度)
+  
+  # 数字ROI提取参数
+  digit_roi:
+    expand_height_ratio: 0.5    # 高度扩展比例
+    min_digit_area: 25          # 数字最小面积
+    margin_pixels: 2            # 数字区域边距
+
+# 数字识别参数
+digit_recognition:
+  # 模板匹配参数
+  template_matching:
+    method: "TM_CCOEFF_NORMED"  # 模板匹配方法
+    score_threshold: 0.7        # 匹配分数阈值
+    template_size: [50, 80]     # 模板归一化尺寸 [宽, 高]
+  
+  # 模板文件列表
+  template_files: 
+    - "digit_1.png"
+    - "digit_2.png" 
+    - "digit_3.png"
+    - "digit_4.png"
+    - "digit_5.png"
+  
+  # 预处理参数
+  preprocessing:
+    invert_if_dark: true        # 如果背景暗则反转
+    dark_threshold: 0.3         # 暗背景判断阈值
+    use_morphology: true        # 使用形态学去噪
+    morphology_kernel: [2, 2]   # 形态学核大小
+
+# 弹道计算参数 (Level 3)
+trajectory_calculation:
+  # 物理参数
+  air_resistance_factor: 0.001  # 空气阻力因子
+  gravity_compensation: 1.0     # 重力补偿系数
+  max_iterations: 100           # 最大迭代次数
+  convergence_threshold: 0.001  # 收敛阈值
+
+# ROS2话题配置
+ros:
+  # 订阅话题
+  subscriptions:
+    camera_image: "/camera/image_raw"    # 相机图像话题
+  
+  # 发布话题  
+  publications:
+    detection_results: "/vision/target"  # 检测结果话题
+    debug_image: "/vision/debug_image"   # 调试图像话题
+  
+  # 服务
+  services:
+    hit_armor: "/referee/hit_armor"      # 击打装甲板服务
+
+# 调试和可视化参数
+debug:
+  # 显示选项
+  show_images: true              # 是否显示图像窗口
+  show_hsv: true                # 是否显示HSV图像
+  show_masks: true              # 是否显示颜色掩码
+  show_all_masks: true          # 是否显示合并掩码
+  
+  # 日志选项
+  log_level: "INFO"             # 日志级别 (DEBUG, INFO, WARN, ERROR)
+  print_detection_info: true    # 打印检测信息
+  save_debug_images: false      # 是否保存调试图像
+  debug_image_path: "./debug/"  # 调试图像保存路径
+  
+  # 可视化参数
+  visualization:
+    draw_contours: true         # 绘制轮廓
+    draw_corners: true          # 绘制角点
+    draw_labels: true           # 绘制标签
+    draw_centers: true          # 绘制中心点
+    line_thickness: 2           # 线条粗细
+    point_radius: 6             # 点半径
+    text_scale: 0.6             # 文字大小
+    text_thickness: 2           # 文字粗细
+
+# 性能优化参数
+performance:
+  enable_multithreading: true   # 启用多线程处理
+  max_queue_size: 10            # 最大队列大小
+  processing_interval: 1        # 处理间隔(帧)
+  resize_factor: 1.0            # 图像缩放因子 (0-1)
+
+# 目标优先级配置
+target_priority:
+  # 目标类型权重 (数值越高优先级越高)
+  weights:
+    armor_red_5: 100
+    armor_red_4: 90
+    armor_red_3: 80
+    armor_red_2: 70
+    armor_red_1: 60
+    sphere: 50
+    rect: 40
+  
+  # 距离权重
+  distance_weight: 0.3          # 距离影响因子
+  size_weight: 0.2              # 尺寸影响因子
+  confidence_weight: 0.5        # 置信度影响因子
