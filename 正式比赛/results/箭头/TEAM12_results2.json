@@ -1,0 +1,14 @@
+{
+    "RaceStage2": {
+        "average_directerror": 2.152,
+        "average_positionerror": 0.704,
+        "fps": 14,
+        "max_directerror": 3.139,
+        "max_positionerror": 1.095,
+        "run_id": "6ebda715-cb5b-4406-ac27-8c433ea5b68b",
+        "score": 6.5,
+        "target_type": "arrow",
+        "team_name": "TEAM12",
+        "timestamp": "2025-11-29T14:34:46Z"
+    }
+}
