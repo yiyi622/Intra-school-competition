@@ -1,0 +1,95 @@
+{
+    "RaceStage3": [
+        {
+            "average_numdetecterror": 0.68,
+            "average_orientationerror": 3.14,
+            "fps": 5,
+            "max_numdetecterror": 999.0,
+            "max_orientationerror": 3.14,
+            "run_id": "6a785a76-eeca-41c4-a3d3-c0c1cee22933",
+            "score": 0.0,
+            "target_type": "armor_red_2",
+            "timestamp": "2025-11-29T17:50:50Z"
+        },
+        {
+            "average_numdetecterror": 0.39,
+            "average_orientationerror": 1.754,
+            "fps": 18,
+            "max_numdetecterror": 0.392,
+            "max_orientationerror": 1.758,
+            "run_id": "f56ba587-c8f8-4777-97dc-14d804d9fab2",
+            "score": 8.5,
+            "target_type": "armor_red_1",
+            "timestamp": "2025-11-29T17:50:50Z"
+        },
+        {
+            "average_numdetecterror": 0.39,
+            "average_orientationerror": 3.14,
+            "fps": 18,
+            "max_numdetecterror": 999.0,
+            "max_orientationerror": 3.14,
+            "run_id": "e96fb335-0347-440a-b6d3-481796f9416a",
+            "score": 0.0,
+            "target_type": "armor_red_3",
+            "timestamp": "2025-11-29T17:50:50Z"
+        },
+        {
+            "average_numdetecterror": 0.68,
+            "average_orientationerror": 1.569,
+            "fps": 6,
+            "max_numdetecterror": 0.769,
+            "max_orientationerror": 1.597,
+            "run_id": "37f3b9da-52cf-40f0-8171-7b15ae37054f",
+            "score": 4.0,
+            "target_type": "armor_red_4",
+            "timestamp": "2025-11-29T17:50:50Z"
+        }
+    ],
+    "RaceStage4": [
+        {
+            "average_numdetecterror": 0.673,
+            "average_orientationerror": 1.57,
+            "fps": 5,
+            "max_numdetecterror": 7.05,
+            "max_orientationerror": 3.128,
+            "run_id": "c37df95b-1593-471b-ba36-8e2724800760",
+            "score": 5.5,
+            "target_type": "armor_red_4",
+            "timestamp": "2025-11-29T17:51:00Z"
+        },
+        {
+            "average_numdetecterror": 0.392,
+            "average_orientationerror": 1.752,
+            "fps": 11,
+            "max_numdetecterror": 4.727,
+            "max_orientationerror": 1.758,
+            "run_id": "067182cb-d1bc-40e9-9a7b-7a04296f470d",
+            "score": 10.5,
+            "target_type": "armor_red_1",
+            "timestamp": "2025-11-29T17:51:00Z"
+        },
+        {
+            "average_numdetecterror": 1.495,
+            "average_orientationerror": 1.604,
+            "fps": 1,
+            "max_numdetecterror": 3.299,
+            "max_orientationerror": 1.684,
+            "run_id": "c68999b0-c941-4813-9970-83e9b6109c27",
+            "score": 1.5,
+            "target_type": "armor_red_3",
+            "timestamp": "2025-11-29T17:51:00Z"
+        },
+        {
+            "average_numdetecterror": 1.676,
+            "average_orientationerror": 1.559,
+            "fps": 13,
+            "max_numdetecterror": 3.374,
+            "max_orientationerror": 1.65,
+            "run_id": "97f35a36-857a-49bc-9977-56f44f6c1c04",
+            "score": 2.0,
+            "target_type": "armor_red_2",
+            "timestamp": "2025-11-29T17:51:00Z"
+        }
+    ],
+    "team_name": "TEAM12"
+}
