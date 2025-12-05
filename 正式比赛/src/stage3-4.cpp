@@ -342,7 +342,7 @@ Point2f VisionNode::refine_endpoint(const vector<Point> &contour, const Point &e
     return Point2f(extreme_point.x, extreme_point.y);
 }
 
-// 提取数字ROI - 改进版本
+// 提取数字ROI
 cv::Mat VisionNode::extract_digit_roi(const cv::Mat &image, const std::vector<cv::Point2f> &armor_points)
 {
     if (armor_points.size() != 4)
@@ -362,7 +362,7 @@ cv::Mat VisionNode::extract_digit_roi(const cv::Mat &image, const std::vector<cv
         float height = max_y - min_y;
 
         // 扩展区域用于数字检测
-        float expand_height = height * 0.6f; // 减小扩展比例
+        float expand_height = height * 0.6f; // 扩展比例
 
         int roi_x = std::max(0, static_cast<int>(min_x));
         int roi_y = std::max(0, static_cast<int>(min_y - expand_height));
@@ -547,16 +547,6 @@ int VisionNode::match_digit(const cv::Mat &input_digit, double threshold)
     // 预处理输入图像
     cv::Mat processed_input = input_digit.clone();
 
-    // 检查颜色并决定是否反转
-    double white_ratio = cv::countNonZero(processed_input) / (double)(processed_input.cols * processed_input.rows);
-    RCLCPP_INFO(this->get_logger(), "White pixel ratio: %.3f", white_ratio);
-
-    if (white_ratio < 0.3)
-    {
-        cv::bitwise_not(processed_input, processed_input);
-        RCLCPP_INFO(this->get_logger(), "Inverted image (was black background)");
-    }
-
     // 归一化到模板大小
     cv::Mat resized_input = normalize_digit(processed_input, digit_templates[0].size());
 
@@ -569,15 +559,9 @@ int VisionNode::match_digit(const cv::Mat &input_digit, double threshold)
         cv::Mat result1, result2;
         double score1, score2;
 
-        // 方法1: 标准匹配
+        // 标准匹配
         cv::matchTemplate(resized_input, digit_templates[i], result1, cv::TM_CCOEFF_NORMED);
         cv::minMaxLoc(result1, nullptr, &score1);
-
-        // 方法2: 反转模板匹配（处理可能的颜色差异）
-        cv::Mat inverted_template;
-        cv::bitwise_not(digit_templates[i], inverted_template);
-        cv::matchTemplate(resized_input, inverted_template, result2, cv::TM_CCOEFF_NORMED);
-        cv::minMaxLoc(result2, nullptr, &score2);
 
         // 取较高分数
         double max_score = std::max(score1, score2);

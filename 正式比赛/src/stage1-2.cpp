@@ -24,10 +24,11 @@ private:
     vector<referee_pkg::msg::Object> detect_ring(const cv::Mat &image, const cv::Mat &mask);
     vector<Point2f> calculate_ring_points(const Point2f &center, float radius);
     vector<referee_pkg::msg::Object> detect_arrow(const cv::Mat &image, const cv::Mat &mask);
-    vector<Point2f> sort_rectangle_points(Point2f vertices[4], float rect_angle);
 
-    // 新增函数
-    Point2f calculate_arrow_direction(const vector<Point> &approx);
+    vector<Point2f> sort_rectangle_points(Point2f rect_vertices[4], float rect_angle);
+
+    Point2f calculate_arrow_direction(const vector<Point> &arrow_vertices);
+    //计算箭头的有向边界框（旋转矩形）
     RotatedRect calculate_oriented_bounding_box(const vector<Point> &points, const Point2f &direction);
 
     // 颜色阈值结构体
@@ -55,7 +56,7 @@ public:
             {Scalar(80, 100, 100), Scalar(100, 255, 255), "cyan"},
             {Scalar(40, 50, 50), Scalar(85, 230, 255), "green"},
             {Scalar(100, 50, 50), Scalar(130, 255, 255), "blue"}};
-
+        //回调函数将接收到的ROS2图像消息转换为OpenCV格式，进行目标检测，并发布检测结果
         camera_subscriber = this->create_subscription<sensor_msgs::msg::Image>(
             "/camera/image_raw", 10,
             bind(&VisionNode::camera_callback, this, placeholders::_1));
@@ -66,22 +67,164 @@ public:
         namedWindow("Detected Result", WINDOW_AUTOSIZE);
         RCLCPP_INFO(this->get_logger(), "Vision_Node initialized successfully");
     }
-
+    //销毁显示窗口
     ~VisionNode()
     {
         destroyWindow("Detected Result");
     }
 };
 
+void VisionNode::camera_callback(sensor_msgs::msg::Image::SharedPtr msg)
+{
+    try
+    {
+        /*每一帧摄像头仿真节点拍到的原始图像都会被节点转换图像消息，消息中包含了仿真时间（原始图像拍摄时间）、原始图像数据等，然后再发布出去*/
+        // 转换ROS图像消息到OpenCV图像
+        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+        Mat image = cv_ptr->image;
+
+        if (image.empty())
+        {
+            RCLCPP_WARN(this->get_logger(), "Received empty image");
+            return;
+        }
+
+        Mat result_image = image.clone();
+        auto detected_objects = detect_targets(result_image);
+
+        // 构造MultiObject消息
+        referee_pkg::msg::MultiObject multi_object_msg;
+        multi_object_msg.header = msg->header;
+        // 使用摄像头节点发来的原始图像消息的时间戳，这样裁判系统就能知道我的检测结果是对应哪一帧原始图像（同步处理），进而判断检测的准确性
+        multi_object_msg.num_objects = detected_objects.size();
+
+        // 设置目标信息
+        for (const auto &obj : detected_objects)
+        {
+            referee_pkg::msg::Object obj_msg;
+            obj_msg.target_type = obj.target_type;
+
+            // 填充角点
+            for (const auto &corner : obj.corners)
+            {
+                geometry_msgs::msg::Point point;
+                point.x = corner.x;
+                point.y = corner.y;
+                point.z = corner.z;
+                obj_msg.corners.push_back(point);
+                // push_back函数用于往容器（动态数组）末尾添加新的元素
+            }
+
+            multi_object_msg.objects.push_back(obj_msg);
+            /*这里的两个push_back相当于是数据组装器：1.在内层循环，把4个独立的Point组装成一个 Object 的 corners 列表
+            2.在外层循环，把一个个组装好的 Object 目标，组装成最终要发布的 MultiObject 消息列表。最终一次性发出去*/
+
+            /*动态数组好用是好用，但问题在于要频繁的拷贝数据和对现有容器扩容，会影响性能，估计帧率低的问题就出在这儿！
+            优化方法：如果提前知道动态数组要放多少元素，可以提前预留(reserve)好，避免中途多次扩容：
+                在填冲角点的for循环前写： corners.reserve(4); */
+        }
+
+        // 发布MultiObject消息
+        result_publisher->publish(multi_object_msg);
+
+        // 可视化处理后的图像
+        imshow("Detected Result", result_image);
+        waitKey(1);
+
+        // 统计不同类型目标数量
+        int ring_pairs = 0;
+        for (const auto &obj : detected_objects) //把要遍历的容器（detected_objects）的元素定义为obj
+        {
+            if (obj.target_type == "Ring_red")
+                ring_pairs++;
+        }
+        ring_pairs = ring_pairs / 2; // 每个圆环包含2个对象
+
+        RCLCPP_INFO(this->get_logger(),
+                    "Detected %d objects: %d ring pairs, publishing to /vision/target",
+                    multi_object_msg.num_objects, ring_pairs);
+
+        // 调试信息
+        RCLCPP_INFO(this->get_logger(), "Detected objects: %zu", detected_objects.size());
+        for (const auto &obj : detected_objects)
+        {
+            RCLCPP_INFO(this->get_logger(), "  - %s with %zu corners",
+                        obj.target_type.c_str(), obj.corners.size());
+        }
+    }
+    catch (const exception &e)
+    {
+        RCLCPP_ERROR(this->get_logger(), "Processing error: %s", e.what());
+    }
+}
+
+// 主检测函数
+vector<referee_pkg::msg::Object> VisionNode::detect_targets(const cv::Mat &image)
+{
+    vector<referee_pkg::msg::Object> all_targets;
+
+    Mat hsv;
+    cvtColor(image, hsv, COLOR_BGR2HSV);
+
+    imshow("HSV Image", hsv);
+    //创建一个与原始图像大小相同的全黑掩码，用于调试显示所有颜色的检测结果
+    Mat debug_mask = Mat::zeros(image.size(), CV_8UC1);
+
+    for (const auto &color : color_thresholds_)
+    {
+        Mat mask;
+        inRange(hsv, color.lower, color.upper, mask); //用于检查输入数组(图像)的每个元素是否在lower和upper范围内，并将结果写入输出图像，创建掩码
+        debug_mask = debug_mask | mask;               //按位或运算符，将当前掩码合并到总掩码中
+
+        if (color.color_name == "red1" || color.color_name == "red2")
+        {
+            //创建形态学操作核
+            Mat kernel_dilate = getStructuringElement(MORPH_ELLIPSE, Size(5, 5)); //膨胀
+            Mat kernel_erode = getStructuringElement(MORPH_ELLIPSE, Size(2, 2));  //腐蚀
+
+            morphologyEx(mask, mask, MORPH_DILATE, kernel_dilate);
+            morphologyEx(mask, mask, MORPH_ERODE, kernel_erode);
+        }
+        else
+        {
+            Mat kernel = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
+            morphologyEx(mask, mask, MORPH_CLOSE, kernel);
+            morphologyEx(mask, mask, MORPH_OPEN, kernel);
+        }
+
+        imshow("Mask " + color.color_name, mask);
+
+        // 目标检测
+        if (color.color_name == "red1" || color.color_name == "red2")
+        {
+            auto rings = detect_ring(image, mask);
+            // insert函数用于在动态数组的指定位置插入一组元素，这里是把检测到的圆环目标添加到总目标列表中
+            all_targets.insert(all_targets.end(), rings.begin(), rings.end());
+
+            auto arrows = detect_arrow(image, mask);
+            all_targets.insert(all_targets.end(), arrows.begin(), arrows.end());
+        }
+        else
+        {
+            auto rings = detect_ring(image, mask);
+            all_targets.insert(all_targets.end(), rings.begin(), rings.end());
+        }
+    }
+
+    imshow("All Colors Mask", debug_mask);
+    waitKey(1);
+    return all_targets;
+}
+
 // 修改：圆环检测函数 - 基于原有的球体检测逻辑
 vector<referee_pkg::msg::Object> VisionNode::detect_ring(const cv::Mat &image, const cv::Mat &mask)
 {
     vector<referee_pkg::msg::Object> rings;
     vector<vector<Point>> contours;
-    findContours(mask, contours, RETR_LIST, CHAIN_APPROX_SIMPLE);
+    findContours(mask, contours, RETR_LIST, CHAIN_APPROX_SIMPLE); //这里要改成检测所有轮廓
 
-    // 存储所有检测到的圆形
-    vector<tuple<Point2f, float, double>> detected_circles; // (center, radius, circularity)
+    // 存储所有检测到的圆形，元组能将多个不同类型的数据组合成一个单一对象，且无需提前定义结构
+    vector<tuple<Point2f, float, double>> detected_circles; // (center, radius, circularity圆度)
 
     // 第一遍：检测所有可能的圆形（使用原有的检测逻辑）
     for (const auto &contour : contours)
@@ -115,11 +258,12 @@ vector<referee_pkg::msg::Object> VisionNode::detect_ring(const cv::Mat &image, c
     }
 
     // 第二遍：配对内外圆（圆环检测）
-    // 按半径从大到小排序，便于配对
+    // 用自定义的lambda表达式，按半径从大到小排序，便于配对
     sort(detected_circles.begin(), detected_circles.end(),
          [](const auto &a, const auto &b)
-         { return get<1>(a) > get<1>(b); });
+         { return get<1>(a) > get<1>(b); }); //获取元组a和b的第二个元素（半径）进行比较
 
+    //创建一个布尔数组，大小与detected_circles相同，用于标记哪些圆已经被配对使用
     vector<bool> used(detected_circles.size(), false);
 
     for (size_t i = 0; i < detected_circles.size(); i++)
@@ -257,59 +401,6 @@ vector<Point2f> VisionNode::calculate_ring_points(const Point2f &center, float r
     return points;
 }
 
-// 主检测函数
-vector<referee_pkg::msg::Object> VisionNode::detect_targets(const cv::Mat &image)
-{
-    vector<referee_pkg::msg::Object> all_targets;
-
-    Mat hsv;
-    cvtColor(image, hsv, COLOR_BGR2HSV);
-
-    imshow("HSV Image", hsv);
-    Mat debug_mask = Mat::zeros(image.size(), CV_8UC1);
-
-    for (const auto &color : color_thresholds_)
-    {
-        Mat mask;
-        inRange(hsv, color.lower, color.upper, mask);
-        debug_mask = debug_mask | mask;
-
-        if (color.color_name == "red1" || color.color_name == "red2")
-        {
-            Mat kernel_dilate = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
-            Mat kernel_erode = getStructuringElement(MORPH_ELLIPSE, Size(2, 2));
-            morphologyEx(mask, mask, MORPH_DILATE, kernel_dilate);
-            morphologyEx(mask, mask, MORPH_ERODE, kernel_erode);
-        }
-        else
-        {
-            Mat kernel = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
-            morphologyEx(mask, mask, MORPH_CLOSE, kernel);
-            morphologyEx(mask, mask, MORPH_OPEN, kernel);
-        }
-
-        imshow("Mask " + color.color_name, mask);
-
-        if (color.color_name == "red1" || color.color_name == "red2")
-        {
-            auto rings = detect_ring(image, mask);
-            all_targets.insert(all_targets.end(), rings.begin(), rings.end());
-
-            auto arrows = detect_arrow(image, mask);
-            all_targets.insert(all_targets.end(), arrows.begin(), arrows.end());
-        }
-        else
-        {
-            auto rings = detect_ring(image, mask);
-            all_targets.insert(all_targets.end(), rings.begin(), rings.end());
-        }
-    }
-
-    imshow("All Colors Mask", debug_mask);
-    waitKey(1);
-    return all_targets;
-}
-
 // 箭头检测函数
 vector<referee_pkg::msg::Object> VisionNode::detect_arrow(const cv::Mat &image, const cv::Mat &mask)
 {
@@ -324,23 +415,23 @@ vector<referee_pkg::msg::Object> VisionNode::detect_arrow(const cv::Mat &image, 
 
         if (area < 50 || area > 2000)
             continue;
-
-        vector<Point> approx;
+        //多边形近似，epsilon是近似精度，应该能得到一个近似菱形的边框
+        vector<Point> arrow_vertices;
         double epsilon = 0.02 * arcLength(contour, true);
-        approxPolyDP(contour, approx, epsilon, true);
+        approxPolyDP(contour, arrow_vertices, epsilon, true);
 
-        if (approx.size() < 4)
+        if (arrow_vertices.size() < 4)
             continue;
 
-        Point2f direction = calculate_arrow_direction(approx);
-        RotatedRect oriented_rect = calculate_oriented_bounding_box(approx, direction);
+        Point2f direction = calculate_arrow_direction(arrow_vertices);
+        RotatedRect oriented_rect = calculate_oriented_bounding_box(arrow_vertices, direction);
 
         referee_pkg::msg::Object arrow_obj;
         arrow_obj.target_type = "arrow";
 
-        Point2f vertices[4];
-        oriented_rect.points(vertices);
-        vector<Point2f> sorted_vertices = sort_rectangle_points(vertices, oriented_rect.angle);
+        Point2f rect_vertices[4]; //旋转外接矩形顶点
+        oriented_rect.points(rect_vertices);
+        vector<Point2f> sorted_vertices = sort_rectangle_points(rect_vertices, oriented_rect.angle);
 
         for (const auto &point : sorted_vertices)
         {
@@ -358,15 +449,15 @@ vector<referee_pkg::msg::Object> VisionNode::detect_arrow(const cv::Mat &image, 
 }
 
 // 计算箭头方向
-Point2f VisionNode::calculate_arrow_direction(const vector<Point> &approx)
+Point2f VisionNode::calculate_arrow_direction(const vector<Point> &arrow_vertices)
 {
     double max_length = 0;
     Point2f direction(0, 0);
 
-    for (size_t i = 0; i < approx.size(); i++)
+    for (size_t i = 0; i < arrow_vertices.size(); i++)
     {
-        Point2f p1 = approx[i];
-        Point2f p2 = approx[(i + 1) % approx.size()];
+        Point2f p1 = arrow_vertices[i];
+        Point2f p2 = arrow_vertices[(i + 1) % arrow_vertices.size()];
         Point2f edge = p2 - p1;
         double length = norm(edge);
 
@@ -416,9 +507,9 @@ RotatedRect VisionNode::calculate_oriented_bounding_box(const vector<Point> &poi
 }
 
 // 修复的角点排序函数 - 避免std::pair比较问题
-vector<Point2f> VisionNode::sort_rectangle_points(Point2f vertices[4], float rect_angle)
+vector<Point2f> VisionNode::sort_rectangle_points(Point2f rect_vertices[4], float rect_angle)
 {
-    vector<Point2f> points(vertices, vertices + 4);
+    vector<Point2f> points(rect_vertices, rect_vertices + 4);
     Point2f center(0, 0);
     for (const auto &p : points)
         center += p;
@@ -471,81 +562,6 @@ vector<Point2f> VisionNode::sort_rectangle_points(Point2f vertices[4], float rec
     }
 
     return sorted_points;
-}
-
-void VisionNode::camera_callback(sensor_msgs::msg::Image::SharedPtr msg)
-{
-    try
-    {
-        // 转换ROS图像消息到OpenCV图像
-        cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-        Mat image = cv_ptr->image;
-
-        if (image.empty())
-        {
-            RCLCPP_WARN(this->get_logger(), "Received empty image");
-            return;
-        }
-
-        Mat result_image = image.clone();
-        auto detected_objects = detect_targets(result_image);
-
-        // 构造MultiObject消息
-        referee_pkg::msg::MultiObject multi_object_msg;
-        multi_object_msg.header = msg->header; // 使用图像消息的时间戳
-        multi_object_msg.num_objects = detected_objects.size();
-
-        // 设置目标信息
-        for (const auto &obj : detected_objects)
-        {
-            referee_pkg::msg::Object obj_msg;
-            obj_msg.target_type = obj.target_type;
-
-            // 填充角点
-            for (const auto &corner : obj.corners)
-            {
-                geometry_msgs::msg::Point point;
-                point.x = corner.x;
-                point.y = corner.y;
-                point.z = corner.z;
-                obj_msg.corners.push_back(point);
-            }
-
-            multi_object_msg.objects.push_back(obj_msg);
-        }
-
-        // 发布MultiObject消息
-        result_publisher->publish(multi_object_msg);
-
-        // 可视化处理后的图像
-        imshow("Detected Result", result_image);
-        waitKey(1);
-
-        // 统计不同类型目标数量
-        int ring_pairs = 0;
-        for (const auto &obj : detected_objects)
-        {
-            if (obj.target_type == "Ring_red")
-                ring_pairs++;
-        }
-        ring_pairs = ring_pairs / 2; // 每个圆环包含2个对象
-
-        RCLCPP_INFO(this->get_logger(),
-                    "Detected %d objects: %d ring pairs, publishing to /vision/target",
-                    multi_object_msg.num_objects, ring_pairs);
-
-        // 调试信息
-        RCLCPP_INFO(this->get_logger(), "Detected objects: %zu", detected_objects.size());
-        for (const auto &obj : detected_objects)
-        {
-            RCLCPP_INFO(this->get_logger(), "  - %s with %zu corners",
-                        obj.target_type.c_str(), obj.corners.size());
-        }
-    }
-    catch (const exception &e)
-    {
-        RCLCPP_ERROR(this->get_logger(), "Processing error: %s", e.what());
-    }
 }
 
 int main(int argc, char **argv)
